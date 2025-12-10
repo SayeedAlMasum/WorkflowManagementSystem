@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 
 namespace Workflow.Application.DTOs
 {
-    internal class CreateWorkflowStepDto
+
+    public class CreateWorkflowStepDto
     {
-        public string Name { get; set; }
+        public string StepName { get; set; }
         public int Order { get; set; }
         public string RoleRequired { get; set; }
     }
