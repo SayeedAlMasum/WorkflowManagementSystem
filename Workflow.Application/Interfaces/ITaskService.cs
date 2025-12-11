@@ -4,13 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Workflow.Application.DTOs;
+using Workflow.Domain.Entities;
 
-namespace Workflow.Application.Interfaces
+namespace Workflow.Application.Interfaces;
+
+public interface ITaskService
 {
-
-    public interface ITaskService
-    {
-        Task<List<TaskDto>> GetMyTasksAsync(string userId);
-        Task<TaskActionResultDto> CompleteTaskAsync(int taskId, TaskActionDto action, string userId);
-    }
+    Task<List<TaskDto>> GetMyTasksAsync(string userId, StepStatus? status = null, int page = 1, int pageSize = 20);
+    Task<TaskActionResultDto> CompleteTaskAsync(int taskId, TaskActionDto action, string userId);
 }

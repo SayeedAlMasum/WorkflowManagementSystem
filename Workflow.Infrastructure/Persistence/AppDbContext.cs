@@ -14,6 +14,9 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<WorkflowStep> WorkflowSteps { get; set; }
     public DbSet<WorkflowInstance> WorkflowInstances { get; set; }
     public DbSet<WorkflowInstanceStep> WorkflowInstanceSteps { get; set; }
+    public DbSet<WorkflowInstanceHistory> WorkflowInstanceHistories { get; set; }
+    public DbSet<Document> Documents { get; set; }
+    public DbSet<LeaveRequest> LeaveRequests { get; set; }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -22,11 +25,13 @@ public class AppDbContext : IdentityDbContext<AppUser>
         // Workflow configurations
         builder.Entity<Domain.Entities.Workflow>(entity =>
         {
+
             entity.HasMany(e => e.Steps)
-            .WithOne(s => s.Workflow)
-            .HasForeignKey(s => s.WorkflowId)
-            .OnDelete(DeleteBehavior.Cascade);
+                .WithOne(s => s.Workflow)
+                .HasForeignKey(s => s.WorkflowId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
+
         // WorkflowInstance configurations
         builder.Entity<WorkflowInstance>(entity =>
         {
@@ -44,7 +49,6 @@ public class AppDbContext : IdentityDbContext<AppUser>
         // WorkflowInstanceStep configurations
         builder.Entity<WorkflowInstanceStep>(entity =>
         {
-
             entity.HasOne(e => e.WorkflowStep)
                 .WithMany()
                 .HasForeignKey(e => e.WorkflowStepId)
@@ -60,5 +64,20 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 .HasForeignKey(e => e.CompletedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // WorkflowInstanceHistory configurations
+        builder.Entity<WorkflowInstanceHistory>(entity =>
+        {
+            entity.HasOne(h => h.WorkflowInstance)
+                .WithMany()
+                .HasForeignKey(h => h.WorkflowInstanceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(h => h.WorkflowStep)
+                .WithMany()
+                .HasForeignKey(h => h.WorkflowStepId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
     }
 }

@@ -9,7 +9,7 @@ namespace Workflow.Domain.Entities
 {
     public class AppUser : IdentityUser
     {
-        public string FullName { get; set; }
+        public string? FullName { get; set; } // Nullable since it's optional
     }
 
 }

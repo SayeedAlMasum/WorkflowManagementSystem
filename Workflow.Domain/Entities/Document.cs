@@ -5,19 +5,27 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Workflow.Domain.Entities
+namespace Workflow.Domain.Entities;
+
+public class Document
 {
-    public class Document
-    {
-        public int Id { get; set; }
-        [Required]
-        public string FileName { get; set; }
-        [Required]
-        public string Url { get; set; }
-        [Required]
-        public string MimeType { get; set; }
-        [Required]
-        public string UploaderId { get; set; }
-        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
-    }
+    [Key]
+    public int Id { get; set; }
+    
+    [Required]
+    [MaxLength(255)]
+    public required string FileName { get; set; }
+    
+    [Required]
+    [MaxLength(1000)]
+    public required string Url { get; set; }
+    
+    [Required]
+    [MaxLength(100)]
+    public required string MimeType { get; set; }
+    
+  [Required]
+    public required string UploaderId { get; set; }
+    
+    public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
 }

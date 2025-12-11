@@ -4,6 +4,7 @@ namespace Workflow.Domain.Entities
 {
     public class WorkflowInstance
     {
+        [Key]
         public int Id { get; set; }
 
         [Required]
@@ -21,6 +22,7 @@ namespace Workflow.Domain.Entities
         public InstanceStatus Status { get; set; }
 
         // Navigation
+        [Required]
         public required Workflow Workflow { get; set; }
 
         public ICollection<WorkflowInstanceStep> Steps { get; set; } = new List<WorkflowInstanceStep>();

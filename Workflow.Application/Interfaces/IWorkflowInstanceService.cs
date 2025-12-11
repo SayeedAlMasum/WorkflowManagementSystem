@@ -15,5 +15,9 @@ namespace Workflow.Application.Interfaces
         Task<WorkflowInstanceDto> GetInstanceAsync(int id);
         Task<ActionResultDto> ActOnInstanceAsync(int instanceId, InstanceActionDto action, string actingUserId);
         Task<List<WorkflowInstanceDto>> GetMyInstancesAsync(string userId);
+        
+        // Explicit methods for clarity
+        Task<ActionResultDto> ApproveAsync(int instanceId, string userId, string? comments = null);
+        Task<ActionResultDto> RejectAsync(int instanceId, string userId, string? comments = null);
     }
 }

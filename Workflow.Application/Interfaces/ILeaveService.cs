@@ -7,9 +7,10 @@ using Workflow.Application.DTOs;
 
 namespace Workflow.Application.Interfaces
 {
+
     public interface ILeaveService
     {
-        Task<int> SubmitAync(CreateLeaveRequestDto dto);
+        Task<int> SubmitAsync(CreateLeaveRequestDto dto);
         Task<LeaveRequestDto> GetAsync(int id);
     }
 }
