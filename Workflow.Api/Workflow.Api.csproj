@@ -23,10 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Controllers\" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\Workflow.Application\Workflow.Application.csproj" />
     <ProjectReference Include="..\Workflow.Infrastructure\Workflow.Infrastructure.csproj" />
   </ItemGroup>

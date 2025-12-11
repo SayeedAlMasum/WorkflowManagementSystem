@@ -1,11 +1,7 @@
+﻿using Workflow.Application.Interfaces;
+
 namespace Workflow.Infrastructure.Services
 {
-    public interface IStorageService
-    {
-        Task<string> SaveAsync(Stream content, string fileName, string mimeType, CancellationToken ct = default);
-        Task<Stream?> GetAsync(string url, CancellationToken ct = default);
-        Task<bool> DeleteAsync(string url, CancellationToken ct = default);
-    }
 
     public class LocalStorageService : IStorageService
     {
