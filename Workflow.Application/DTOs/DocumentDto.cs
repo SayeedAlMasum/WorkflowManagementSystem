@@ -1,16 +1,23 @@
-﻿
-
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace Workflow.Application.DTOs
 {
-    public class DocumentDto
-    {
-        [Required]    
-        public string FileName { get; set; }
-        [Required]
-        public string MimeType { get; set; }
-        [Required]
-        public Stream Content { get; set; } // file content }
+        public class DocumentDto
+        {
+            public int Id { get; set; }
+
+            [Required]
+            public string FileName { get; set; }
+
+            [Required]
+            public string Url { get; set; }
+
+            [Required]
+            public string MimeType { get; set; }
+
+            [Required]
+            public string UploaderId { get; set; }
+
+            public DateTime CreatedDate { get; set; }
         }
 }
