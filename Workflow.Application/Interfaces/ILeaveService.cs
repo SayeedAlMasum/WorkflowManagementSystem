@@ -12,5 +12,8 @@ namespace Workflow.Application.Interfaces
     {
         Task<int> SubmitAsync(CreateLeaveRequestDto dto);
         Task<LeaveRequestDto> GetAsync(int id);
+        Task<List<LeaveRequestDto>> GetMyLeaveRequestsAsync(string employeeId);
+        Task UpdateAsync(int id, CreateLeaveRequestDto dto);
+        Task DeleteAsync(int id);
     }
 }

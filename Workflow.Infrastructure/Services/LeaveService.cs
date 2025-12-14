@@ -40,5 +40,42 @@ namespace Workflow.Infrastructure.Services
 
             return _mapper.Map<LeaveRequestDto>(leave);
         }
+
+        public async Task<List<LeaveRequestDto>> GetMyLeaveRequestsAsync(string employeeId)
+        {
+            var leaves = await _db.LeaveRequests
+                .Where(l => l.EmployeeId == employeeId)
+                .OrderByDescending(l => l.CreatedDate)
+                .ToListAsync();
+
+            return _mapper.Map<List<LeaveRequestDto>>(leaves);
+        }
+
+        public async Task UpdateAsync(int id, CreateLeaveRequestDto dto)
+        {
+            var leave = await _db.LeaveRequests.FindAsync(id);
+
+            if (leave == null)
+                throw new KeyNotFoundException($"Leave request {id} not found");
+
+            // Update properties
+            leave.StartDate = dto.StartDate;
+            leave.EndDate = dto.EndDate;
+            leave.Reason = dto.Reason;
+            leave.LeaveType = dto.LeaveType;
+
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task DeleteAsync(int id)
+        {
+            var leave = await _db.LeaveRequests.FindAsync(id);
+
+            if (leave == null)
+                throw new KeyNotFoundException($"Leave request {id} not found");
+
+            _db.LeaveRequests.Remove(leave);
+            await _db.SaveChangesAsync();
+        }
     }
 }

@@ -14,12 +14,12 @@ public class WorkflowService : IWorkflowService
     public WorkflowService(AppDbContext db, IMapper mapper)
     {
         _db = db;
-  _mapper = mapper;
+        _mapper = mapper;
     }
 
     public async Task<int> CreateWorkflowAsync(CreateWorkflowDto dto)
     {
-   var workflow = _mapper.Map<Domain.Entities.Workflow>(dto);
+        var workflow = _mapper.Map<Domain.Entities.Workflow>(dto);
    
         _db.Workflows.Add(workflow);
         await _db.SaveChangesAsync();
@@ -46,5 +46,51 @@ public class WorkflowService : IWorkflowService
       throw new KeyNotFoundException($"Workflow with ID {id} not found");
       
       return _mapper.Map<WorkflowDto>(workflow);
+    }
+
+    public async Task UpdateAsync(int id, CreateWorkflowDto dto)
+    {
+        var workflow = await _db.Workflows
+       .Include(w => w.Steps)
+          .FirstOrDefaultAsync(w => w.Id == id);
+
+        if (workflow == null)
+      throw new KeyNotFoundException($"Workflow with ID {id} not found");
+
+      // Update basic properties
+   workflow.Name = dto.Name;
+        workflow.Description = dto.Description;
+
+        // Remove existing steps
+        _db.WorkflowSteps.RemoveRange(workflow.Steps);
+
+        // Add new steps
+ workflow.Steps = _mapper.Map<List<Domain.Entities.WorkflowStep>>(dto.Steps);
+      foreach (var step in workflow.Steps)
+        {
+    step.WorkflowId = workflow.Id;
+        }
+
+   await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteAsync(int id)
+    {
+        var workflow = await _db.Workflows
+            .Include(w => w.Steps)
+    .FirstOrDefaultAsync(w => w.Id == id);
+
+        if (workflow == null)
+          throw new KeyNotFoundException($"Workflow with ID {id} not found");
+
+        // Check if workflow has any instances
+        var hasInstances = await _db.WorkflowInstances
+         .AnyAsync(i => i.WorkflowId == id);
+
+   if (hasInstances)
+            throw new InvalidOperationException("Cannot delete workflow with existing instances");
+
+        _db.Workflows.Remove(workflow);
+        await _db.SaveChangesAsync();
     }
 }

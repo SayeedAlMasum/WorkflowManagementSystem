@@ -11,6 +11,8 @@ namespace Workflow.Application.Interfaces
     {
        Task<DocumentDto> UploadAsync(CreateDocumentDto dto, string uploaderId);
        Task<List<DocumentDto>> ListAsync(string? UploaderId = null);
+       Task<DocumentDto> GetByIdAsync(int id);
+       Task DeleteAsync(int id);
     }
 
 }
