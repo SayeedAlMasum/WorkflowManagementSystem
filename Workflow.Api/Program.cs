@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using Workflow.Application.Interfaces;
 using Workflow.Application.Mappings;
 using Workflow.Domain.Entities;
@@ -10,27 +11,27 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add DbContext with SQL Server
 builder.Services.AddDbContext<AppDbContext>(options =>
-  options.UseSqlServer(
-       builder.Configuration.GetConnectionString("DefaultConnection"),
-sqlOptions => sqlOptions.EnableRetryOnFailure(
-   maxRetryCount: 5,
-           maxRetryDelay: TimeSpan.FromSeconds(30),
-     errorNumbersToAdd: null)
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions => sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null)
     ));
 
 // Add Identity
 builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
 {
- options.Password.RequireDigit = true;
+    options.Password.RequireDigit = true;
     options.Password.RequiredLength = 6;
     options.Password.RequireNonAlphanumeric = false;
-  options.Password.RequireUppercase = true;
+    options.Password.RequireUppercase = true;
     options.Password.RequireLowercase = true;
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
 
-// Add AutoMapper - AddAuto Mapper from assemblies containing profiles
+// Add AutoMapper
 builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
 
 // Register Application Services
@@ -49,21 +50,33 @@ builder.Services.AddSingleton<IStorageService>(new LocalStorageService(uploadPat
 // Add Controllers
 builder.Services.AddControllers();
 
-// Add Swagger/OpenAPI
+// Add Swagger/OpenAPI with file upload support
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "Workflow Management API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo 
+    { 
+        Title = "Workflow Management API", 
+        Version = "v1",
+        Description = "A comprehensive workflow management system with document approval and leave request workflows"
+    });
+
+    // Enable file upload support in Swagger
+    c.MapType<IFormFile>(() => new OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary"
+    });
 });
 
 // Add CORS (if needed for frontend)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll",
- policy => policy
-        .AllowAnyOrigin()
-        .AllowAnyMethod()
-      .AllowAnyHeader());
+        policy => policy
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader());
 });
 
 var app = builder.Build();
@@ -72,7 +85,11 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Workflow Management API v1");
+        c.RoutePrefix = "swagger";
+    });
 }
 
 app.UseHttpsRedirection();
@@ -93,12 +110,12 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     try
     {
-  await SeedRoles(services);
-  }
+        await SeedRoles(services);
+    }
     catch (Exception ex)
     {
-    var logger = services.GetRequiredService<ILogger<Program>>();
-   logger.LogError(ex, "An error occurred while seeding roles");
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while seeding roles");
     }
 }
 
@@ -112,10 +129,10 @@ static async Task SeedRoles(IServiceProvider serviceProvider)
     string[] roles = { "Admin", "Manager", "HR", "Reviewer", "Employee" };
     
     foreach (var role in roles)
-{
+    {
         if (!await roleManager.RoleExistsAsync(role))
         {
-     await roleManager.CreateAsync(new IdentityRole(role));
-    }
+            await roleManager.CreateAsync(new IdentityRole(role));
+      }
     }
 }
