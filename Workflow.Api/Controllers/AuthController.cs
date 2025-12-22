@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
-using Workflow.Api.DTOs;
+using Workflow.Application.DTOs;
 using Workflow.Api.Services;
 using Workflow.Domain.Entities;
 
