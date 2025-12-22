@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using Workflow.Domain.Entities;
 
 namespace Workflow.Application.DTOs;
@@ -8,10 +9,14 @@ public class WorkflowInstanceDto
 {
     public int Id { get; set; }
     public int WorkflowId { get; set; }
-    public required string WorkflowName { get; set; }
-    public required string CurrentStepId { get; set; }
-    public required string CurrentStepName { get; set; }
-    public required string CreatedById { get; set; }
+    [Required]
+    public string WorkflowName { get; set; }
+    [Required]
+    public string CurrentStepId { get; set; }
+    [Required]
+    public string CurrentStepName { get; set; }
+    [Required]
+    public string CreatedById { get; set; }
     public DateTime CreatedDate { get; set; }
     public InstanceStatus Status { get; set; }
     public List<WorkflowInstanceStepDto> Steps { get; set; } = new List<WorkflowInstanceStepDto>();

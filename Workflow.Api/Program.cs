@@ -1,6 +1,10 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.Text;
+using Workflow.Api.Services;
 using Workflow.Application.Interfaces;
 using Workflow.Application.Mappings;
 using Workflow.Domain.Entities;
@@ -14,8 +18,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         sqlOptions => sqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 5,
-            maxRetryDelay: TimeSpan.FromSeconds(30),
+maxRetryCount: 5,
+     maxRetryDelay: TimeSpan.FromSeconds(30),
             errorNumbersToAdd: null)
     ));
 
@@ -30,6 +34,80 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
+
+// Configure JWT Authentication
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.SaveToken = true;
+    options.RequireHttpsMetadata = false; // Set to true in production
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+    ValidateLifetime = true,
+  ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings["Issuer"],
+     ValidAudience = jwtSettings["Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ClockSkew = TimeSpan.Zero // Remove delay of token expiry
+  };
+
+    // Add event handlers for debugging
+    options.Events = new JwtBearerEvents
+  {
+   OnAuthenticationFailed = context =>
+        {
+     var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+      logger.LogError("Authentication failed: {Error}", context.Exception.Message);
+ 
+            if (context.Exception is SecurityTokenExpiredException)
+ {
+          context.Response.Headers.Add("Token-Expired", "true");
+   logger.LogError("Token expired at {ExpiredAt}", context.Exception.Message);
+  }
+  else if (context.Exception is SecurityTokenInvalidSignatureException)
+            {
+         logger.LogError("Invalid token signature");
+   }
+        else if (context.Exception is SecurityTokenInvalidIssuerException)
+            {
+        logger.LogError("Invalid token issuer. Expected: {Expected}", jwtSettings["Issuer"]);
+ }
+       else if (context.Exception is SecurityTokenInvalidAudienceException)
+            {
+     logger.LogError("Invalid token audience. Expected: {Expected}", jwtSettings["Audience"]);
+            }
+       
+      return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+     logger.LogInformation("Token validated successfully for user: {UserId}", userId);
+            return Task.CompletedTask;
+        },
+        OnChallenge = context =>
+        {
+      var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogWarning("Authorization challenge: {Error}, {ErrorDescription}", 
+      context.Error, context.ErrorDescription);
+ return Task.CompletedTask;
+        }
+    };
+});
+
+// Register JWT Service
+builder.Services.AddScoped<IJwtService, JwtService>();
 
 // Add AutoMapper
 builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
@@ -50,23 +128,63 @@ builder.Services.AddSingleton<IStorageService>(new LocalStorageService(uploadPat
 // Add Controllers
 builder.Services.AddControllers();
 
-// Add Swagger/OpenAPI with file upload support
+// Add Swagger/OpenAPI with JWT support
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo 
     { 
         Title = "Workflow Management API", 
-        Version = "v1",
-        Description = "A comprehensive workflow management system with document approval and leave request workflows"
+    Version = "v1",
+    Description = "A comprehensive workflow management system with document approval and leave request workflows.\n\n" +
+            "**Authentication:**\n" +
+  "1. Register a new user via POST /api/auth/register\n" +
+     "2. Login via POST /api/auth/login to get JWT token\n" +
+       "3. Click 'Authorize' button and enter: Bearer {your-token}\n" +
+      "4. All subsequent requests will include the token automatically\n\n" +
+            "**Default Roles:** Admin, Manager, HR, Reviewer, Employee"
+    });
+
+    // Add JWT Authentication to Swagger
+   c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+     BearerFormat = "JWT",
+In = ParameterLocation.Header,
+        Description = "Enter 'Bearer' followed by a space and your JWT token.\n\nExample: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+     new OpenApiSecurityScheme
+    {
+Reference = new OpenApiReference
+      {
+             Type = ReferenceType.SecurityScheme,
+         Id = "Bearer"
+           }
+      },
+ Array.Empty<string>()
+        }
     });
 
     // Enable file upload support in Swagger
     c.MapType<IFormFile>(() => new OpenApiSchema
     {
         Type = "string",
-        Format = "binary"
+Format = "binary"
     });
+
+    // Enable XML comments if available
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+  {
+c.IncludeXmlComments(xmlPath);
+ }
 });
 
 // Add CORS (if needed for frontend)
@@ -133,6 +251,6 @@ static async Task SeedRoles(IServiceProvider serviceProvider)
         if (!await roleManager.RoleExistsAsync(role))
         {
             await roleManager.CreateAsync(new IdentityRole(role));
-      }
+        }
     }
 }

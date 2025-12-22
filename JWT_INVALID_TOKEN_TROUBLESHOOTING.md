@@ -1,0 +1,394 @@
+# JWT Token "invalid_token" Error - Troubleshooting Guide
+
+## ????? Error
+```
+401 Unauthorized
+www-authenticate: Bearer error="invalid_token"
+```
+
+## ???????? ???? ??? ??????
+
+### 1. Token Format ??????
+
+**Check ????:**
+```
+Authorization: Bearer eyJhbGc...
+```
+
+**??? Format (?):**
+- `eyJhbGc...` (Bearer prefix ???)
+- `bearer eyJhbGc...` (??? ????? b)
+- `Bearer  eyJhbGc...` (???? space)
+- `Bearer:eyJhbGc...` (colon ???)
+
+**???? Format (?):**
+- `Bearer eyJhbGc...` (???? space, capital B)
+
+---
+
+### 2. Issuer/Audience Mismatch
+
+**????? appsettings.json check ????:**
+```json
+{
+  "Jwt": {
+    "Key": "YourSuperSecretKeyThatIsAtLeast32CharactersLongForHS256Algorithm",
+    "Issuer": "WorkflowManagementSystem",
+    "Audience": "WorkflowManagementSystemUsers",
+ "ExpiryInMinutes": 60
+  }
+}
+```
+
+**?????? ??? ???? ???:**
+- Token ?? Issuer/Audience ????? generate ?????? ?? configuration ?? ???? match ???? ??
+- Token ???? environment (dev/prod) ???? generated
+
+**??????:**
+1. Login ??? ???? token generate ????  
+2. Token ?? content decode ??? check ????: https://jwt.io/
+
+---
+
+### 3. Token Expired
+
+**Check ????:**
+```
+TokenExpiry: "2024-12-19T10:30:00Z"
+```
+
+??? current time > TokenExpiry ??? ????? ???? login ?????
+
+---
+
+### 4. JWT Key Mismatch
+
+**????? JwtService check ????:**
+
+Token generate ???? ???? ?? **Key** use ?????:
+```csharp
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["Key"]!));
+```
+
+??? validation ?? ???? ?? **Key** use ?????:
+```csharp
+IssuerSigningKey = new SymmetricSecurityKey(key)
+```
+
+**?????? ??? ??? ???!**
+
+---
+
+## Debugging Steps
+
+### Step 1: Check Your Token
+
+????? token ?? copy ??? https://jwt.io/ ?? paste ?????
+
+**Check ????:**
+1. **Header:**
+   ```json
+   {
+     "alg": "HS256",
+     "typ": "JWT"
+   }
+   ```
+
+2. **Payload:**
+   ```json
+   {
+     "sub": "user-id",
+     "email": "swagger@example.com",
+   "jti": "...",
+     "nameid": "user-id",
+     "name": "swagger@example.com",
+     "role": ["Admin", "Employee"],
+     "iss": "WorkflowManagementSystem",
+     "aud": "WorkflowManagementSystemUsers",
+     "exp": 1734607800
+   }
+   ```
+
+3. **Verify Signature** section ? ????? JWT Key ???
+
+??? "Signature Verified" ??????, ????? token valid?
+
+---
+
+### Step 2: Check API Logs
+
+API restart ???? ?? logs ?????:
+
+**Success logs (?):**
+```
+Token validated successfully for user: {UserId}
+```
+
+**Error logs (?):**
+```
+Authentication failed: {Error}
+Token expired at {...}
+Invalid token signature
+Invalid token issuer. Expected: {...}
+Invalid token audience. Expected: {...}
+```
+
+?? logs ???? exact problem ????? ???????
+
+---
+
+### Step 3: Test Auth Endpoint
+
+**API Endpoint:** `GET /api/auth/test-auth`
+
+**Swagger ?:**
+1. Authorize ???? token ?????
+2. `test-auth` endpoint execute ????
+
+**Expected Response (?):**
+```json
+{
+  "authenticated": true,
+  "userName": "swagger@example.com",
+  "userId": "1435458b-eb9c-4edd-87c6-88e31bce40c7",
+  "email": "swagger@example.com",
+  "claims": [...]
+}
+```
+
+**Error Response (?):**
+```
+401 Unauthorized
+```
+
+---
+
+### Step 4: Check Token Generation
+
+**Login endpoint ? breakpoint ???:**
+
+```csharp
+var token = _jwtService.GenerateToken(user, roles);
+```
+
+**Debug ??? check ????:**
+- `jwtSettings["Issuer"]` = ?
+- `jwtSettings["Audience"]` = ?
+- `jwtSettings["Key"]` = ? (32+ characters)
+- `roles` = ? (??? roles ????)
+
+---
+
+### Step 5: Compare Configuration
+
+**Token Generation Time (JwtService.cs):**
+```csharp
+var token = new JwtSecurityToken(
+    issuer: jwtSettings["Issuer"],     // <-- ???
+    audience: jwtSettings["Audience"],  // <-- ???
+    claims: claims,
+ expires: DateTime.UtcNow.AddMinutes(...),
+    signingCredentials: credentials     // <-- ???
+);
+```
+
+**Token Validation Time (Program.cs):**
+```csharp
+TokenValidationParameters = new TokenValidationParameters
+{
+    ValidIssuer = jwtSettings["Issuer"],     // <-- ??? match ???? ???
+    ValidAudience = jwtSettings["Audience"],  // <-- ??? match ???? ???
+    IssuerSigningKey = new SymmetricSecurityKey(key)  // <-- ??? match ???? ???
+}
+```
+
+---
+
+## Quick Fixes
+
+### Fix 1: Restart API and Re-login
+
+1. API stop ???? (Ctrl+C)
+2. API start ????:
+   ```bash
+   cd Workflow.Api
+   dotnet run
+   ```
+3. ???? login ????:
+   ```
+   POST /api/auth/login
+   {
+     "email": "swagger@example.com",
+     "password": "Swagger123456789"
+   }
+   ```
+4. **???? token** copy ????
+5. Swagger ? **re-authorize** ????
+
+---
+
+### Fix 2: Verify appsettings.json
+
+```json
+{
+  "Jwt": {
+    "Key": "YourSuperSecretKeyThatIsAtLeast32CharactersLongForHS256Algorithm",
+    "Issuer": "WorkflowManagementSystem",
+    "Audience": "WorkflowManagementSystemUsers",
+"ExpiryInMinutes": 60
+  }
+}
+```
+
+**Important:**
+- Key must be at least 32 characters
+- No trailing spaces
+- Exact same in all environments
+
+---
+
+### Fix 3: Clear Swagger Cache
+
+1. Browser ?? Developer Tools open ???? (F12)
+2. Application/Storage tab ???
+3. Clear Site Data click ????
+4. Swagger reload ????
+
+---
+
+### Fix 4: Use Postman Instead
+
+Swagger ? issue ????? Postman use ????:
+
+**Request:**
+```
+GET https://localhost:7032/api/auth/assign-role
+Headers:
+  Authorization: Bearer eyJhbGc...
+  Content-Type: application/json
+
+Body:
+{
+  "userId": "...",
+  "role": "Admin"
+}
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Solution |
+|---------|----------|
+| ?????? token use ????? | ???? login ??? token ??? |
+| Bearer prefix ??? | `Bearer ` (capital B, ???? space) |
+| Token copy incomplete | Full token copy ???? |
+| API restart ?????? | Changes apply ???? restart ???? |
+| Different environment token | Same environment ? login ???? |
+
+---
+
+## Test ???? ???? SQL Script
+
+Token validate ????? ???? check ????:
+
+```sql
+-- Check your user ??? roles
+SELECT 
+    u.Id,
+    u.Email,
+  u.UserName,
+    STRING_AGG(r.Name, ', ') as Roles
+FROM AspNetUsers u
+LEFT JOIN AspNetUserRoles ur ON u.Id = ur.UserId
+LEFT JOIN AspNetRoles r ON ur.RoleId = r.RoleId
+WHERE u.Email = 'swagger@example.com'
+GROUP BY u.Id, u.Email, u.UserName;
+```
+
+---
+
+## Ultimate Test
+
+??? ?? ???? ??? ??? ??? ?????? ??? ?? ???:
+
+### 1. Temporarily Disable JWT
+
+```csharp
+// In AuthController, comment out [Authorize(Roles = "Admin")]
+// [Authorize(Roles = "Admin")]  // <-- Comment this
+[HttpPost("assign-role")]
+public async Task<IActionResult> AssignRole(...)
+```
+
+??? ????? ??? ???, ????? JWT configuration ?? ???????
+
+### 2. Check Middleware Order
+
+```csharp
+app.UseAuthentication();  // <-- ??? ???
+app.UseAuthorization();   // <-- ??? ???
+app.MapControllers();     // <-- ??? ????
+```
+
+Order ??? ??? authentication ??? ???? ???
+
+---
+
+## ???? Recommendation
+
+1. ? API **restart** ????
+2. ? Swagger **reload** ???? (Ctrl+F5)
+3. ? **Login** ??? ???? token ???
+4. ? **Authorize** ???? Swagger ?
+5. ? `GET /api/auth/test-auth` call ???? - ??? successful ??? token valid
+6. ? ????? `POST /api/auth/assign-role` try ????
+
+---
+
+## Debug ?? ???? Enhanced Logging
+
+??? Program.cs ? logging add ?????? ??? ????? test ????:
+
+1. API start ????
+2. Login ????
+3. Token ????? authorize ????
+4. Assign-role call ????
+5. Console/Terminal ? logs ?????:
+
+**Success:**
+```
+Token validated successfully for user: {UserId}
+```
+
+**Failure:**
+```
+Authentication failed: {Error Message}
+Invalid token signature
+Invalid token issuer. Expected: WorkflowManagementSystem
+```
+
+?? logs exact problem ??? ?????
+
+---
+
+## ???? ????
+
+1. **API Stop ????** (Ctrl+C)
+2. **API Start ????**:
+   ```bash
+   dotnet run
+   ```
+3. **Swagger open ????**: https://localhost:7032/swagger
+4. **Login ????** - ???? token ?????
+5. **Token copy ????** ??? jwt.io ?? verify ????
+6. **Authorize ????** Swagger ?
+7. **Test ????** `GET /api/auth/test-auth`
+8. **Logs check ????** terminal ?
+
+??? ???? error ???, logs ?? screenshot ????? - exact problem identify ????
+
+---
+
+**Status: Enhanced logging added ?**  
+**Action: Restart API and test again ??**
