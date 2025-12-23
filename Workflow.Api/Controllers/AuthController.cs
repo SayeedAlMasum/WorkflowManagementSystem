@@ -617,93 +617,221 @@ return StatusCode(500, new AuthResponseDto
     /// <summary>
     /// Test authentication - verify JWT token is working
     /// </summary>
-    [Authorize]
- [HttpGet("test-auth")]
+ [Authorize]
+    [HttpGet("test-auth")]
+  [ApiExplorerSettings(IgnoreApi = true)]  // Hide from Swagger in production
     public IActionResult TestAuth()
     {
- try
+#if DEBUG
+        try
         {
-            return Ok(new
-  {
- authenticated = User.Identity?.IsAuthenticated ?? false,
-       userName = User.Identity?.Name,
-      userId = User.FindFirstValue(ClaimTypes.NameIdentifier),
-email = User.FindFirstValue(ClaimTypes.Email),
-     claims = User.Claims.Select(c => new { c.Type, c.Value }).ToList()
-  });
-   }
-     catch (Exception ex)
+         return Ok(new
+    {
+    authenticated = User.Identity?.IsAuthenticated ?? false,
+                userName = User.Identity?.Name,
+              userId = User.FindFirstValue(ClaimTypes.NameIdentifier),
+          email = User.FindFirstValue(ClaimTypes.Email),
+         claims = User.Claims.Select(c => new { c.Type, c.Value }).ToList()
+     });
+        }
+    catch (Exception ex)
         {
             _logger.LogError(ex, "Error in test-auth");
-    return StatusCode(500, new { error = ex.Message });
+          return StatusCode(500, new { error = ex.Message });
         }
- }
+#else
+     return NotFound();
+#endif
+    }
 
     /// <summary>
     /// Debug JWT configuration - shows current JWT settings (Admin only for security)
     /// </summary>
     [Authorize(Roles = "Admin")]
     [HttpGet("debug-jwt")]
+    [ApiExplorerSettings(IgnoreApi = true)]// Hide from Swagger in production
     public IActionResult DebugJwt()
     {
+#if DEBUG
         try
-     {
-         var jwtSettings = _configuration.GetSection("Jwt");
+{
+            var jwtSettings = _configuration.GetSection("Jwt");
 
             return Ok(new
-     {
-            issuer = jwtSettings["Issuer"],
-         audience = jwtSettings["Audience"],
-          keyLength = jwtSettings["Key"]?.Length ?? 0,
-     expiryMinutes = jwtSettings["ExpiryInMinutes"],
-    serverTime = DateTime.UtcNow,
-              message = "JWT Configuration (Key hidden for security)"
-    });
-   }
-        catch (Exception ex)
-   {
-         _logger.LogError(ex, "Error in debug-jwt");
+            {
+                issuer = jwtSettings["Issuer"],
+       audience = jwtSettings["Audience"],
+      keyLength = jwtSettings["Key"]?.Length ?? 0,
+expiryMinutes = jwtSettings["ExpiryInMinutes"],
+            serverTime = DateTime.UtcNow,
+       message = "JWT Configuration (Key hidden for security)"
+   });
+        }
+    catch (Exception ex)
+        {
+_logger.LogError(ex, "Error in debug-jwt");
             return StatusCode(500, new { error = ex.Message });
         }
-  }
+#else
+      return NotFound();
+#endif
+    }
 
     /// <summary>
     /// Generate a test token without authentication (for testing only - remove in production!)
     /// </summary>
     [HttpPost("generate-test-token")]
+    [ApiExplorerSettings(IgnoreApi = true)]  // Hide from Swagger in production
     public async Task<IActionResult> GenerateTestToken([FromBody] string email)
     {
+#if DEBUG
         try
-        {
-var user = await _userManager.FindByEmailAsync(email);
-          if (user == null)
+    {
+          var user = await _userManager.FindByEmailAsync(email);
+  if (user == null)
        return NotFound(new { message = "User not found" });
 
-  var roles = await _userManager.GetRolesAsync(user);
+          var roles = await _userManager.GetRolesAsync(user);
   var token = _jwtService.GenerateToken(user, roles);
-            var tokenExpiry = DateTime.UtcNow.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"]));
+         var tokenExpiry = DateTime.UtcNow.AddMinutes(Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"]));
 
-      // Also decode and show token details
-         var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-    var jwtToken = handler.ReadJwtToken(token);
+         // Also decode and show token details
+        var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+            var jwtToken = handler.ReadJwtToken(token);
 
 return Ok(new
-         {
-  token = token,
-  tokenExpiry = tokenExpiry,
-          decodedToken = new
-                {
-  issuer = jwtToken.Issuer,
-         audience = jwtToken.Audiences.FirstOrDefault(),
-           expiration = jwtToken.ValidTo,
- claims = jwtToken.Claims.Select(c => new { c.Type, c.Value }).ToList()
-        }
+            {
+       token = token,
+     tokenExpiry = tokenExpiry,
+       decodedToken = new
+             {
+              issuer = jwtToken.Issuer,
+        audience = jwtToken.Audiences.FirstOrDefault(),
+          expiration = jwtToken.ValidTo,
+        claims = jwtToken.Claims.Select(c => new { c.Type, c.Value }).ToList()
+                }
             });
         }
-catch (Exception ex)
+        catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating test token");
+     return StatusCode(500, new { error = ex.Message });
+        }
+#else
+      return NotFound();
+#endif
+    }
+
+    /// <summary>
+    /// Test raw Authorization header - verify token is being sent correctly (No auth required)
+    /// </summary>
+    [HttpGet("test-raw-header")]
+    [AllowAnonymous]
+    [ApiExplorerSettings(IgnoreApi = true)]  // Hide from Swagger in production
+    public IActionResult TestRawAuthHeader()
+    {
+#if DEBUG
+        try
+    {
+        var authHeader = Request.Headers["Authorization"].ToString();
+          var hasAuthHeader = !string.IsNullOrEmpty(authHeader);
+
+    return Ok(new
+         {
+     hasAuthorizationHeader = hasAuthHeader,
+      authorizationHeader = hasAuthHeader ? authHeader : "No Authorization header found",
+                headerCount = Request.Headers.Count,
+                allHeaders = Request.Headers.Select(h => new { h.Key, Value = h.Value.ToString() }).ToList()
+   });
+      }
+  catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in test-raw-header");
+ return StatusCode(500, new { error = ex.Message });
+ }
+#else
+        return NotFound();
+#endif
+ }
+
+    /// <summary>
+    /// Get just the token from login (easier to copy) - for testing only
+    /// </summary>
+    [HttpPost("get-token")]
+    [AllowAnonymous]
+    [ApiExplorerSettings(IgnoreApi = true)]  // Hide from Swagger in production
+    public async Task<IActionResult> GetToken([FromBody] LoginDto model)
+    {
+#if DEBUG
+        try
+     {
+    if (!ModelState.IsValid)
+         return BadRequest(new { error = "Invalid input" });
+
+   var user = await _userManager.FindByEmailAsync(model.Email);
+    if (user == null)
+       return Unauthorized(new { error = "Invalid credentials" });
+
+    var result = await _signInManager.CheckPasswordSignInAsync(user, model.Password, lockoutOnFailure: false);
+          if (!result.Succeeded)
+    return Unauthorized(new { error = "Invalid credentials" });
+
+  var roles = await _userManager.GetRolesAsync(user);
+     var token = _jwtService.GenerateToken(user, roles);
+ var expiryMinutes = Convert.ToDouble(_configuration["Jwt:ExpiryInMinutes"]);
+          var tokenExpiry = DateTime.UtcNow.AddMinutes(expiryMinutes);
+
+       // Return ONLY the token as plain text for easy copying
+          return Ok(new
+       {
+   token = token,
+  tokenExpiry = tokenExpiry,
+        expiresIn = $"{expiryMinutes} minutes",
+       instruction = "Copy the token value above (without quotes) and paste it in Swagger Authorize dialog"
+  });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting token");
    return StatusCode(500, new { error = ex.Message });
         }
+#else
+    return NotFound();
+#endif
+    }
+
+ /// <summary>
+    /// Validate if current token is still valid - for testing only
+    /// </summary>
+    [HttpGet("validate-token")]
+    [Authorize]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public IActionResult ValidateToken()
+    {
+#if DEBUG
+        try
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+  var email = User.FindFirstValue(ClaimTypes.Email);
+    var userName = User.Identity?.Name;
+
+            return Ok(new
+            {
+                valid = true,
+      message = "Token is valid",
+                userId = userId,
+    email = email,
+      userName = userName,
+   authenticated = User.Identity?.IsAuthenticated ?? false
+            });
+        }
+        catch (Exception ex)
+        {
+         _logger.LogError(ex, "Error validating token");
+            return StatusCode(500, new { error = ex.Message });
+        }
+#else
+        return NotFound();
+#endif
     }
 }

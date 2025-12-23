@@ -8,7 +8,6 @@ using Workflow.Infrastructure.Persistence;
 
 namespace Workflow.Infrastructure.Services
 {
-
     public class WorkflowInstanceService : IWorkflowInstanceService
     {
         private readonly AppDbContext _db;
@@ -27,7 +26,7 @@ namespace Workflow.Infrastructure.Services
             // Validate workflow template exists
             var workflow = await _db.Workflows
                 .Include(w => w.Steps.OrderBy(s => s.Order))
-        .FirstOrDefaultAsync(w => w.Id == dto.WorkflowId);
+                .FirstOrDefaultAsync(w => w.Id == dto.WorkflowId);
 
             if (workflow == null)
                 throw new ArgumentException("Workflow template not found");
@@ -35,100 +34,105 @@ namespace Workflow.Infrastructure.Services
             if (!workflow.Steps.Any())
                 throw new InvalidOperationException("Workflow has no steps defined");
 
-            using var transaction = await _db.Database.BeginTransactionAsync();
-            try
+            // Use execution strategy instead of manual transaction
+            var strategy = _db.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync(async () =>
             {
-                // Create workflow instance
-                var instance = new WorkflowInstance
+                using var transaction = await _db.Database.BeginTransactionAsync();
+                try
                 {
-                    WorkflowId = workflow.Id,
-                    CreatedById = dto.CreatedById,
-                    CreatedDate = DateTime.UtcNow,
-                    Status = InstanceStatus.InProgress,
-                    CurrentStepId = "0", // Will update after creating steps
-                    Workflow = workflow
-                };
-
-                _db.WorkflowInstances.Add(instance);
-                await _db.SaveChangesAsync();
-
-                // Create instance steps from template
-                var firstStep = workflow.Steps.OrderBy(s => s.Order).First();
-
-                foreach (var templateStep in workflow.Steps)
-                {
-                    var instanceStep = new WorkflowInstanceStep
+                    // Create workflow instance
+                    var instance = new WorkflowInstance
                     {
-                        WorkflowInstanceId = instance.Id,
-                        WorkflowStepId = templateStep.Id,
-                        StepName = templateStep.StepName,
-                        Order = templateStep.Order,
-                        Status = templateStep.Order == firstStep.Order ? StepStatus.InProgress : StepStatus.Pending,
-                        WorkflowInstance = instance,
-                        WorkflowStep = templateStep
+                        WorkflowId = workflow.Id,
+                        CreatedById = dto.CreatedById,
+                        CreatedDate = DateTime.UtcNow,
+                        Status = InstanceStatus.InProgress,
+                        CurrentStepId = "0",
+                        Workflow = workflow
                     };
 
-                    // Auto-assign first step to creator if role matches
-                    if (templateStep.Order == firstStep.Order)
-                    {
-                        var userRoles = await _userManager.GetRolesAsync(
-                            await _userManager.FindByIdAsync(dto.CreatedById)
-                   ?? throw new InvalidOperationException("User not found"));
+                    _db.WorkflowInstances.Add(instance);
+                    await _db.SaveChangesAsync();
 
-                        if (string.IsNullOrEmpty(templateStep.RoleRequired) ||
-                   userRoles.Contains(templateStep.RoleRequired))
+                    // Create instance steps from template
+                    var firstStep = workflow.Steps.OrderBy(s => s.Order).First();
+
+                    foreach (var templateStep in workflow.Steps)
+                    {
+                        var instanceStep = new WorkflowInstanceStep
                         {
-                            instanceStep.AssignedToUserId = dto.CreatedById;
-                            instanceStep.StartedDate = DateTime.UtcNow;
+                            WorkflowInstanceId = instance.Id,
+                            WorkflowStepId = templateStep.Id,
+                            StepName = templateStep.StepName,
+                            Order = templateStep.Order,
+                            Status = templateStep.Order == firstStep.Order ? StepStatus.InProgress : StepStatus.Pending,
+                            WorkflowInstance = instance,
+                            WorkflowStep = templateStep
+                        };
+
+                        if (templateStep.Order == firstStep.Order)
+                        {
+                            var userRoles = await _userManager.GetRolesAsync(
+                                await _userManager.FindByIdAsync(dto.CreatedById)
+                                ?? throw new InvalidOperationException("User not found"));
+
+                            if (string.IsNullOrEmpty(templateStep.RoleRequired) ||
+                                userRoles.Contains(templateStep.RoleRequired))
+                            {
+                                instanceStep.AssignedToUserId = dto.CreatedById;
+                                instanceStep.StartedDate = DateTime.UtcNow;
+                            }
                         }
+
+                        _db.WorkflowInstanceSteps.Add(instanceStep);
                     }
 
-                    _db.WorkflowInstanceSteps.Add(instanceStep);
+                    await _db.SaveChangesAsync();
+
+                    // Update current step ID
+                    var firstInstanceStep = await _db.WorkflowInstanceSteps
+                        .Where(s => s.WorkflowInstanceId == instance.Id)
+                        .OrderBy(s => s.Order)
+                        .FirstAsync();
+
+                    instance.CurrentStepId = firstInstanceStep.Id.ToString();
+                    await _db.SaveChangesAsync();
+
+                    // Add history entry for submission
+                    _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
+                    {
+                        WorkflowInstanceId = instance.Id,
+                        WorkflowStepId = firstStep.Id,
+                        Action = "Submitted",
+                        ActionTakenById = dto.CreatedById,
+                        Comment = dto.Comments,
+                        Timestamp = DateTime.UtcNow,
+                        WorkflowInstance = instance,
+                        WorkflowStep = firstStep
+                    });
+                    await _db.SaveChangesAsync();
+
+                    await transaction.CommitAsync();
+                    return instance.Id;
                 }
-
-                await _db.SaveChangesAsync();
-
-                // Update current step ID
-                var firstInstanceStep = await _db.WorkflowInstanceSteps
-    .Where(s => s.WorkflowInstanceId == instance.Id)
-             .OrderBy(s => s.Order)
-                .FirstAsync();
-
-                instance.CurrentStepId = firstInstanceStep.Id.ToString();
-                await _db.SaveChangesAsync();
-
-                // Add history entry for submission
-                _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
+                catch
                 {
-                    WorkflowInstanceId = instance.Id,
-                    WorkflowStepId = firstStep.Id,
-                    Action = "Submitted",
-                    ActionTakenById = dto.CreatedById,
-                    Comment = dto.Comments,
-                    Timestamp = DateTime.UtcNow,
-                    WorkflowInstance = instance,
-                    WorkflowStep = firstStep
-                });
-                await _db.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-                return instance.Id;
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
         }
 
         public async Task<WorkflowInstanceDto> GetInstanceAsync(int id)
         {
             var instance = await _db.WorkflowInstances
-      .Include(i => i.Workflow)
-            .Include(i => i.Steps.OrderBy(s => s.Order))
-                    .ThenInclude(s => s.AssignedToUser)
-        .Include(i => i.Steps)
-        .ThenInclude(s => s.CompletedByUser)
+                .Include(i => i.Workflow)
+                .Include(i => i.Steps.OrderBy(s => s.Order))
+                .ThenInclude(s => s.AssignedToUser)
+                .Include(i => i.Steps)
+                .ThenInclude(s => s.CompletedByUser)
                 .FirstOrDefaultAsync(i => i.Id == id);
 
             if (instance == null)
@@ -168,9 +172,9 @@ namespace Workflow.Infrastructure.Services
             // Load instance with workflow template and steps
             var instance = await _db.WorkflowInstances
                 .Include(i => i.Workflow)
-               .ThenInclude(w => w.Steps)
-        .Include(i => i.Steps.OrderBy(s => s.Order))
-    .FirstOrDefaultAsync(i => i.Id == instanceId);
+                .ThenInclude(w => w.Steps)
+                .Include(i => i.Steps.OrderBy(s => s.Order))
+                .FirstOrDefaultAsync(i => i.Id == instanceId);
 
             if (instance == null)
                 return new ActionResultDto { Success = false, Message = "Instance not found" };
@@ -190,49 +194,107 @@ namespace Workflow.Infrastructure.Services
             if (!await CanUserActOnStep(actingUserId, templateStep))
                 return new ActionResultDto { Success = false, Message = "User does not have permission for this step" };
 
-            using var transaction = await _db.Database.BeginTransactionAsync();
-            try
+            // Wrap transaction in execution strategy
+            var strategy = _db.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync(async () =>
             {
-                var actionLower = action.Action.ToLower();
-
-                if (actionLower == "approve" || actionLower == "complete")
+                using var transaction = await _db.Database.BeginTransactionAsync();
+                try
                 {
-                    // Mark current step as completed
-                    currentStep.Status = StepStatus.Completed;
-                    currentStep.CompletedDate = DateTime.UtcNow;
-                    currentStep.CompletedByUserId = actingUserId;
-                    currentStep.Comments = action.Comments;
+                    var actionLower = action.Action.ToLower();
 
-                    // Add history entry
-                    _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
+                    if (actionLower == "approve" || actionLower == "complete")
                     {
-                        WorkflowInstanceId = instance.Id,
-                        WorkflowStepId = currentStep.WorkflowStepId,
-                        Action = "Approved",
-                        ActionTakenById = actingUserId,
-                        Comment = action.Comments,
-                        Timestamp = DateTime.UtcNow,
-                        WorkflowInstance = instance
-                    });
+                        // Mark current step as completed
+                        currentStep.Status = StepStatus.Completed;
+                        currentStep.CompletedDate = DateTime.UtcNow;
+                        currentStep.CompletedByUserId = actingUserId;
+                        currentStep.Comments = action.Comments;
 
-                    // Find next step
-                    var orderedSteps = instance.Steps.OrderBy(s => s.Order).ToList();
-                    var currentIndex = orderedSteps.FindIndex(s => s.Id == currentStep.Id);
-
-                    if (currentIndex == orderedSteps.Count - 1)
-                    {
-                        // Last step -> complete workflow
-                        instance.Status = InstanceStatus.Completed;
-                        instance.CurrentStepId = "0";
-
-                        // Add completion history
+                        // Add history entry
                         _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
                         {
                             WorkflowInstanceId = instance.Id,
-                            WorkflowStepId = null,
-                            Action = "Completed",
+                            WorkflowStepId = currentStep.WorkflowStepId,
+                            Action = "Approved",
                             ActionTakenById = actingUserId,
-                            Comment = "Workflow completed successfully",
+                            Comment = action.Comments,
+                            Timestamp = DateTime.UtcNow,
+                            WorkflowInstance = instance
+                        });
+
+                        // Find next step
+                        var orderedSteps = instance.Steps.OrderBy(s => s.Order).ToList();
+                        var currentIndex = orderedSteps.FindIndex(s => s.Id == currentStep.Id);
+
+                        if (currentIndex == orderedSteps.Count - 1)
+                        {
+                            // Last step -> complete workflow
+                            instance.Status = InstanceStatus.Completed;
+                            instance.CurrentStepId = "0";
+
+                            // Add completion history
+                            _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
+                            {
+                                WorkflowInstanceId = instance.Id,
+                                WorkflowStepId = null,
+                                Action = "Completed",
+                                ActionTakenById = actingUserId,
+                                Comment = "Workflow completed successfully",
+                                Timestamp = DateTime.UtcNow,
+                                WorkflowInstance = instance
+                            });
+
+                            await _db.SaveChangesAsync();
+                            await transaction.CommitAsync();
+
+                            return new ActionResultDto
+                            {
+                                Success = true,
+                                Message = "Workflow completed successfully"
+                            };
+                        }
+                        else
+                        {
+                            // Move to next step
+                            var nextStep = orderedSteps[currentIndex + 1];
+                            nextStep.Status = StepStatus.InProgress;
+                            nextStep.StartedDate = DateTime.UtcNow;
+
+                            instance.CurrentStepId = nextStep.Id.ToString();
+
+                            await _db.SaveChangesAsync();
+                            await transaction.CommitAsync();
+
+                            return new ActionResultDto
+                            {
+                                Success = true,
+                                Message = "Step completed, moved to next step",
+                                NextStepName = nextStep.StepName,
+                                AssignedToUserId = nextStep.AssignedToUserId
+                            };
+                        }
+                    }
+                    else if (actionLower == "reject")
+                    {
+                        // Mark step as skipped and workflow as cancelled
+                        currentStep.Status = StepStatus.Skipped;
+                        currentStep.CompletedDate = DateTime.UtcNow;
+                        currentStep.CompletedByUserId = actingUserId;
+                        currentStep.Comments = action.Comments;
+
+                        instance.Status = InstanceStatus.Cancelled;
+                        instance.CurrentStepId = "0";
+
+                        // Add history entry
+                        _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
+                        {
+                            WorkflowInstanceId = instance.Id,
+                            WorkflowStepId = currentStep.WorkflowStepId,
+                            Action = "Rejected",
+                            ActionTakenById = actingUserId,
+                            Comment = action.Comments,
                             Timestamp = DateTime.UtcNow,
                             WorkflowInstance = instance
                         });
@@ -243,90 +305,38 @@ namespace Workflow.Infrastructure.Services
                         return new ActionResultDto
                         {
                             Success = true,
-                            Message = "Workflow completed successfully"
+                            Message = "Workflow rejected and cancelled"
                         };
                     }
                     else
                     {
-                        // Move to next step
-                        var nextStep = orderedSteps[currentIndex + 1];
-                        nextStep.Status = StepStatus.InProgress;
-                        nextStep.StartedDate = DateTime.UtcNow;
-
-                        instance.CurrentStepId = nextStep.Id.ToString();
-
-                        await _db.SaveChangesAsync();
-                        await transaction.CommitAsync();
-
                         return new ActionResultDto
                         {
-                            Success = true,
-                            Message = "Step completed, moved to next step",
-                            NextStepName = nextStep.StepName,
-                            AssignedToUserId = nextStep.AssignedToUserId
+                            Success = false,
+                            Message = "Invalid action. Use 'approve', 'complete', or 'reject'"
                         };
                     }
                 }
-                else if (actionLower == "reject")
+                catch (Exception ex)
                 {
-                    // Mark step as skipped and workflow as cancelled
-                    currentStep.Status = StepStatus.Skipped;
-                    currentStep.CompletedDate = DateTime.UtcNow;
-                    currentStep.CompletedByUserId = actingUserId;
-                    currentStep.Comments = action.Comments;
-
-                    instance.Status = InstanceStatus.Cancelled;
-                    instance.CurrentStepId = "0";
-
-                    // Add history entry
-                    _db.WorkflowInstanceHistories.Add(new WorkflowInstanceHistory
-                    {
-                        WorkflowInstanceId = instance.Id,
-                        WorkflowStepId = currentStep.WorkflowStepId,
-                        Action = "Rejected",
-                        ActionTakenById = actingUserId,
-                        Comment = action.Comments,
-                        Timestamp = DateTime.UtcNow,
-                        WorkflowInstance = instance
-                    });
-
-                    await _db.SaveChangesAsync();
-                    await transaction.CommitAsync();
-
-                    return new ActionResultDto
-                    {
-                        Success = true,
-                        Message = "Workflow rejected and cancelled"
-                    };
-                }
-                else
-                {
+                    await transaction.RollbackAsync();
                     return new ActionResultDto
                     {
                         Success = false,
-                        Message = "Invalid action. Use 'approve', 'complete', or 'reject'"
+                        Message = $"Error processing action: {ex.Message}"
                     };
                 }
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                return new ActionResultDto
-                {
-                    Success = false,
-                    Message = $"Error processing action: {ex.Message}"
-                };
-            }
+            });
         }
 
         public async Task<List<WorkflowInstanceDto>> GetMyInstancesAsync(string userId)
         {
             var instances = await _db.WorkflowInstances
-           .Include(i => i.Workflow)
-          .Include(i => i.Steps)
-     .Where(i => i.CreatedById == userId ||
-       i.Steps.Any(s => s.AssignedToUserId == userId))
-             .OrderByDescending(i => i.CreatedDate)
+                .Include(i => i.Workflow)
+                .Include(i => i.Steps)
+                .Where(i => i.CreatedById == userId ||
+                    i.Steps.Any(s => s.AssignedToUserId == userId))
+                .OrderByDescending(i => i.CreatedDate)
                 .ToListAsync();
 
             var dtos = new List<WorkflowInstanceDto>();

@@ -53,55 +53,69 @@ builder.Services.AddAuthentication(options =>
     {
         ValidateIssuer = true,
         ValidateAudience = true,
-    ValidateLifetime = true,
-  ValidateIssuerSigningKey = true,
+        ValidateLifetime = true,  // Re-enable for production
+        ValidateIssuerSigningKey = true,
         ValidIssuer = jwtSettings["Issuer"],
-     ValidAudience = jwtSettings["Audience"],
+        ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key),
-        ClockSkew = TimeSpan.Zero // Remove delay of token expiry
-  };
+        ClockSkew = TimeSpan.Zero, // Remove delay of token expiry
+        
+        // CRITICAL FIX: Map standard JWT claims to ASP.NET Identity claims
+        NameClaimType = System.Security.Claims.ClaimTypes.Name,
+        RoleClaimType = System.Security.Claims.ClaimTypes.Role
+    };
 
     // Add event handlers for debugging
     options.Events = new JwtBearerEvents
-  {
+    {
    OnAuthenticationFailed = context =>
         {
-     var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-      logger.LogError("Authentication failed: {Error}", context.Exception.Message);
- 
-            if (context.Exception is SecurityTokenExpiredException)
- {
+            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+  logger.LogError("Authentication failed: {Error}", context.Exception.Message);
+        
+  if (context.Exception is SecurityTokenExpiredException)
+          {
           context.Response.Headers.Add("Token-Expired", "true");
    logger.LogError("Token expired at {ExpiredAt}", context.Exception.Message);
-  }
-  else if (context.Exception is SecurityTokenInvalidSignatureException)
-            {
-         logger.LogError("Invalid token signature");
-   }
-        else if (context.Exception is SecurityTokenInvalidIssuerException)
-            {
-        logger.LogError("Invalid token issuer. Expected: {Expected}", jwtSettings["Issuer"]);
  }
-       else if (context.Exception is SecurityTokenInvalidAudienceException)
+            else if (context.Exception is SecurityTokenInvalidSignatureException)
+  {
+         logger.LogError("Invalid token signature");
+  }
+          else if (context.Exception is SecurityTokenInvalidIssuerException)
+     {
+         logger.LogError("Invalid token issuer. Expected: {Expected}", jwtSettings["Issuer"]);
+          }
+  else if (context.Exception is SecurityTokenInvalidAudienceException)
             {
-     logger.LogError("Invalid token audience. Expected: {Expected}", jwtSettings["Audience"]);
-            }
-       
-      return Task.CompletedTask;
-        },
+        logger.LogError("Invalid token audience. Expected: {Expected}", jwtSettings["Audience"]);
+     }
+          
+  return Task.CompletedTask;
+},
         OnTokenValidated = context =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-            var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-     logger.LogInformation("Token validated successfully for user: {UserId}", userId);
+      var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+       logger.LogInformation("Token validated successfully for user: {UserId}", userId);
             return Task.CompletedTask;
         },
         OnChallenge = context =>
         {
-      var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
-        logger.LogWarning("Authorization challenge: {Error}, {ErrorDescription}", 
+        var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+     logger.LogWarning("Authorization challenge: {Error}, {ErrorDescription}", 
       context.Error, context.ErrorDescription);
- return Task.CompletedTask;
+            return Task.CompletedTask;
+        },
+        OnMessageReceived = context =>
+        {
+            var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
+            if (!string.IsNullOrEmpty(token))
+    {
+            logger.LogInformation("JWT token received in request");
+    }
+   return Task.CompletedTask;
         }
     };
 });
@@ -137,35 +151,38 @@ builder.Services.AddSwaggerGen(c =>
         Title = "Workflow Management API", 
     Version = "v1",
     Description = "A comprehensive workflow management system with document approval and leave request workflows.\n\n" +
-            "**Authentication:**\n" +
+        "**Authentication:**\n" +
   "1. Register a new user via POST /api/auth/register\n" +
      "2. Login via POST /api/auth/login to get JWT token\n" +
-       "3. Click 'Authorize' button and enter: Bearer {your-token}\n" +
+     "3. Click 'Authorize' button and paste ONLY THE TOKEN (without 'Bearer')\n" +
       "4. All subsequent requests will include the token automatically\n\n" +
-            "**Default Roles:** Admin, Manager, HR, Reviewer, Employee"
-    });
+  "**Default Roles:** Admin, Manager, HR, Reviewer, Employee"
+ });
 
     // Add JWT Authentication to Swagger
    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
-        Type = SecuritySchemeType.Http,
+      Type = SecuritySchemeType.Http,
         Scheme = "Bearer",
-     BearerFormat = "JWT",
+ BearerFormat = "JWT",
 In = ParameterLocation.Header,
-        Description = "Enter 'Bearer' followed by a space and your JWT token.\n\nExample: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-    });
+   Description = "JWT Authorization header using the Bearer scheme.\n\n" +
+"Enter ONLY your token in the text input below.\n\n" +
+               "Example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\n\n" +
+          "DO NOT include 'Bearer' - it will be added automatically!"
+ });
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+  c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        {
+     {
      new OpenApiSecurityScheme
     {
 Reference = new OpenApiReference
       {
-             Type = ReferenceType.SecurityScheme,
-         Id = "Bearer"
-           }
+   Type = ReferenceType.SecurityScheme,
+       Id = "Bearer"
+         }
       },
  Array.Empty<string>()
         }
@@ -179,7 +196,7 @@ Format = "binary"
     });
 
     // Enable XML comments if available
-    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     if (File.Exists(xmlPath))
   {
